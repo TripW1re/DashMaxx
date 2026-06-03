@@ -10,7 +10,7 @@ import { checkConnection, setMcpUrl, setDoorDashToken, syncAllFromDoorDash, getM
 
 const generateReferralCode = () => 'DASH-' + Math.random().toString(36).substring(2, 8).toUpperCase();
 
-export default function SettingsScreen() {
+export default function SettingsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState(getLocalState());
   const [showReset, setShowReset] = useState(false);
@@ -140,7 +140,7 @@ export default function SettingsScreen() {
               <TouchableOpacity style={[styles.btn, styles.btnPrimary, { flex: 1 }]} onPress={handleManualSync} disabled={syncing}>
                 <Text style={styles.btnPrimaryText}>{syncing ? '⏳ Syncing...' : '🔄 Sync Now'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, styles.btnSecondary, { flex: 1 }]} onPress={() => setShowDoorDash(true)}>
+              <TouchableOpacity style={[styles.btn, styles.btnSecondary, { flex: 1 }]} onPress={() => navigation?.navigate('ConnectDoorDash')}>
                 <Text style={styles.btnSecondaryText}>⚙️ Configure</Text>
               </TouchableOpacity>
             </View>
@@ -149,7 +149,7 @@ export default function SettingsScreen() {
           <View>
             <Text style={{ color: THEME.red, fontSize: 14, fontWeight: '700' }}>❌ Not Connected</Text>
             <Text style={{ color: THEME.text2, fontSize: 11, marginTop: 2 }}>Set up MCP server to pull live DoorDash data</Text>
-            <TouchableOpacity style={[styles.btn, styles.btnPrimary, { marginTop: 8 }]} onPress={() => setShowDoorDash(true)}>
+            <TouchableOpacity style={[styles.btn, styles.btnPrimary, { marginTop: 8 }]} onPress={() => navigation?.navigate('ConnectDoorDash')}>
               <Text style={styles.btnPrimaryText}>🔗 Connect DoorDash</Text>
             </TouchableOpacity>
           </View>
@@ -207,14 +207,20 @@ export default function SettingsScreen() {
         <Text style={{ color: THEME.text3, fontSize: 11, marginTop: 4 }}>Share this code with other dashers to earn 30% commission</Text>
       </Card>
 
-      {/* DoorDash Config Modal */}
+      {/* DoorDash Config Modal (manual fallback) */}
       <Modal visible={showDoorDash} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modal}>
-            <Text style={styles.modalTitle}>🔗 Connect DoorDash</Text>
+            <Text style={styles.modalTitle}>🔗 DoorDash Configuration</Text>
             <Text style={{ color: THEME.text2, fontSize: 12, marginBottom: 12 }}>
-              Enter your MCP server URL and DoorDash auth token to pull live stats.
+              Auto-connect is the easiest way. Tap below to log in to DoorDash right in the app.
             </Text>
+
+            <TouchableOpacity style={[styles.btn, styles.btnPrimary, { marginBottom: 12 }]} onPress={() => { setShowDoorDash(false); navigation?.navigate('ConnectDoorDash'); }}>
+              <Text style={styles.btnPrimaryText}>🔐 Auto-Connect (Recommended)</Text>
+            </TouchableOpacity>
+
+            <Text style={{ color: THEME.text3, fontSize: 11, textAlign: 'center', marginBottom: 12 }}>— OR manual setup —</Text>
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>MCP Server URL</Text>
@@ -222,12 +228,12 @@ export default function SettingsScreen() {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>DoorDash Auth Token</Text>
-              <TextInput style={[styles.input, { height: 80 }]} value={ddToken} onChangeText={setDdToken} placeholder="Paste your Bearer token from dasher.doordash.com" placeholderTextColor={THEME.text3} multiline autoCapitalize="none" />
+              <Text style={styles.inputLabel}>DoorDash Auth Token (manual)</Text>
+              <TextInput style={[styles.input, { height: 80 }]} value={ddToken} onChangeText={setDdToken} placeholder="Paste your Bearer token" placeholderTextColor={THEME.text3} multiline autoCapitalize="none" />
             </View>
 
-            <TouchableOpacity style={styles.helpBtn} onPress={() => showToast('Open dasher.doordash.com → DevTools → Network → copy Authorization header')}>
-              <Text style={{ color: THEME.blue, fontSize: 11 }}>📖 How to get your token?</Text>
+            <TouchableOpacity style={styles.helpBtn} onPress={() => showToast('Use Auto-Connect instead — it captures the token automatically')}>
+              <Text style={{ color: THEME.blue, fontSize: 11 }}>💡 Tip: Use Auto-Connect above</Text>
             </TouchableOpacity>
 
             <View style={styles.modalActions}>
@@ -235,7 +241,7 @@ export default function SettingsScreen() {
                 <Text style={styles.btnSecondaryText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.btn, styles.btnPrimary, { flex: 1 }]} onPress={handleConnectDoorDash} disabled={syncing}>
-                <Text style={styles.btnPrimaryText}>{syncing ? '⏳ Connecting...' : 'Connect & Sync'}</Text>
+                <Text style={styles.btnPrimaryText}>{syncing ? '⏳ Connecting...' : 'Manual Connect'}</Text>
               </TouchableOpacity>
             </View>
           </View>
