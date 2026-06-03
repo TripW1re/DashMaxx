@@ -1,0 +1,29 @@
+query GetDasherDeliveries($limit: Int, $offset: Int) {
+  dasherDeliveries(limit: $limit, offset: $offset) {
+    id
+    orderId
+    date
+    time
+    restaurant
+    customer
+    zone
+    earnings
+    tip
+    mileage
+    items
+    status
+    rating
+  }
+}
+
+query GetRecentDeliveries {
+  dasherDeliveries(limit: 20, offset: 0) {
+    id
+    date
+    earnings
+    tip
+    zone
+    mileage
+    status
+  }
+}

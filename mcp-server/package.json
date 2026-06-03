@@ -1,0 +1,23 @@
+{
+  "name": "dashmaxx-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for DoorDash data — syncs real dasher stats, earnings, ratings, and deliveries",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node src/test.js",
+    "sync": "node src/cli.js --sync-all",
+    "token:capture": "node src/auth/capture.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "firebase-admin": "^12.0.0",
+    "zod": "^3.23.0",
+    "dotenv": "^16.4.0",
+    "node-fetch": "^3.3.0"
+  },
+  "devDependencies": {},
+  "private": true
+}

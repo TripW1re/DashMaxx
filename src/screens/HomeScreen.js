@@ -8,15 +8,18 @@ import { THEME, TRIAL_DAYS } from '../utils/constants';
 import { formatCurrency, formatDate, today } from '../utils/format';
 import { calcTier, calcKpiScores } from '../utils/calculations';
 import { getLocalState, saveToStorage } from '../services/localDb';
+import { isConnected } from '../services/mcpClient';
 
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState(getLocalState());
+  const [mcpOnline, setMcpOnline] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setState(getLocalState());
+      setMcpOnline(isConnected());
     }, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -40,6 +43,17 @@ export default function HomeScreen({ navigation }) {
 
   return (
     <ScrollView style={[styles.container, { paddingTop: insets.top + 8 }]} contentContainerStyle={{ padding: 12, paddingBottom: 100 }}>
+      {mcpOnline && (
+        <View style={styles.syncBanner}>
+          <Text style={styles.syncText}>🚚 Live DoorDash data</Text>
+          <Text style={styles.syncTime}>
+            {state.settings.lastDoorDashSync
+              ? 'Updated ' + new Date(state.settings.lastDoorDashSync).toLocaleTimeString()
+              : 'Syncing...'}
+          </Text>
+        </View>
+      )}
+
       {!pro && (
         <TouchableOpacity style={styles.trialBanner} onPress={() => navigation.navigate('Settings')}>
           <Text style={styles.trialTitle}>⭐ {daysLeft} Day{daysLeft !== 1 ? 's' : ''} Free Trial</Text>
@@ -125,6 +139,9 @@ export default function HomeScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: THEME.bg },
+  syncBanner: { backgroundColor: 'rgba(34,197,94,0.1)', borderRadius: 8, padding: 8, marginBottom: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: THEME.green },
+  syncText: { fontSize: 11, color: THEME.green, fontWeight: '600' },
+  syncTime: { fontSize: 10, color: THEME.text3 },
   trialBanner: { backgroundColor: THEME.surface, borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: THEME.accent },
   trialTitle: { fontSize: 16, fontWeight: '700', color: THEME.accent },
   trialDesc: { fontSize: 12, color: THEME.text2, marginTop: 2 },

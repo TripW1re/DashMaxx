@@ -1,0 +1,27 @@
+query GetDasherEarnings($startDate: String, $endDate: String) {
+  dasherEarnings(startDate: $startDate, endDate: $endDate) {
+    date
+    totalEarnings
+    basePay
+    tips
+    peakPay
+    adjustments
+    deliveries
+    activeHours
+    mileage
+  }
+}
+
+query GetTodayEarnings {
+  dasherEarnings(startDate: "TODAY", endDate: "TODAY") {
+    date
+    totalEarnings
+    basePay
+    tips
+    peakPay
+    adjustments
+    deliveries
+    activeHours
+    mileage
+  }
+}

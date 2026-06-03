@@ -1,0 +1,33 @@
+query GetDasherRatings {
+  currentDasher {
+    stats {
+      averageRating
+      acceptanceRate
+      completionRate
+      onTimeRate
+      qualityRate
+      overallDasherRating
+      rewardsTier
+    }
+  }
+}
+
+query GetRatingBreakdown {
+  currentDasher {
+    stats {
+      averageRating
+      ratingBreakdown {
+        excellent
+        good
+        fair
+        poor
+        bad
+      }
+      last100Orders {
+        acceptanceRate
+        completionRate
+        customerRating
+      }
+    }
+  }
+}

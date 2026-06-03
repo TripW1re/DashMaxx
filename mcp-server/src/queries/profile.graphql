@@ -1,0 +1,33 @@
+query GetDasherProfile {
+  currentDasher {
+    id
+    firstName
+    lastName
+    email
+    phone
+    status
+    currentZone { id name }
+    stats {
+      lifetimeDeliveries
+      lifetimeEarnings
+      averageRating
+      acceptanceRate
+      completionRate
+      onTimeRate
+      qualityRate
+      lifetimeActiveHours
+      thisWeekDeliveries
+      thisWeekEarnings
+      thisWeekActiveHours
+      todayDeliveries
+      todayEarnings
+      todayActiveHours
+      currentStreak
+      longestStreak
+      rewardsTier
+      overallDasherRating
+    }
+    vehicle { type }
+    market { id name currency }
+  }
+}
