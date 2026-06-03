@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "DashMaxx",
+    "slug": "dashmaxx",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0a0e1a"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.dashmaxx.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0a0e1a"
+      },
+      "package": "com.dashmaxx.app",
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes.",
+          "locationWhenInUsePermission": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes."
+        }
+      ]
+    ],
+    "extra": {
+      "firebaseApiKey": "REPLACE_ME",
+      "firebaseAuthDomain": "REPLACE_ME",
+      "firebaseProjectId": "REPLACE_ME",
+      "firebaseStorageBucket": "REPLACE_ME",
+      "firebaseMessagingSenderId": "REPLACE_ME",
+      "firebaseAppId": "REPLACE_ME"
+    }
+  }
+}
