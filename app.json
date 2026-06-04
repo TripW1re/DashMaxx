@@ -22,7 +22,10 @@
         "backgroundColor": "#0a0e1a"
       },
       "package": "com.dashmaxx.app",
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "plugins": [
       [
@@ -31,7 +34,9 @@
           "locationAlwaysAndWhenInUsePermission": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes.",
           "locationWhenInUsePermission": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes."
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-font"
     ],
     "extra": {
       "firebaseApiKey": "REPLACE_ME",
