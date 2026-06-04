@@ -1,5 +1,11 @@
 # DashMaxx — Waze for DoorDash Dashers
 
+<p align="center">
+  <img src="assets/expo-qr.png" width="200" alt="Scan with Expo Go" />
+  <br/>
+  <em>Scan with Expo Go on iOS</em>
+</p>
+
 AI-powered routing, real-time earnings tracking, zone heat maps, and community for Sacramento dashers.
 
 ## Architecture
