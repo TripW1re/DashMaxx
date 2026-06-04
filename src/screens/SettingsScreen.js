@@ -16,7 +16,7 @@ export default function SettingsScreen({ navigation }) {
   const [showReset, setShowReset] = useState(false);
   const [showDoorDash, setShowDoorDash] = useState(false);
   const [ddToken, setDdToken] = useState('');
-  const [mcpUrlInput, setMcpUrlInput] = useState('http://localhost:3100');
+  const [mcpUrlInput, setMcpUrlInput] = useState('https://artistic-reflection-production.up.railway.app');
   const [mcpConnected, setMcpConnected] = useState(false);
   const [mcpStatus, setMcpStatus] = useState(null);
   const [syncing, setSyncing] = useState(false);

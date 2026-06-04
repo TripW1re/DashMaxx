@@ -15,7 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getLocalState, saveToStorage } from './localDb';
 
 // Configurable server URL — set to your MCP server address
-const DEFAULT_MCP_URL = 'http://localhost:3100';
+const DEFAULT_MCP_URL = 'https://artistic-reflection-production.up.railway.app';
 const MCP_URL_KEY = 'dashmaxx_mcp_url';
 
 let mcpUrl = DEFAULT_MCP_URL;
