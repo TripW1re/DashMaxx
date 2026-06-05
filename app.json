@@ -39,12 +39,12 @@
       "expo-font"
     ],
     "extra": {
-      "firebaseApiKey": "REPLACE_ME",
-      "firebaseAuthDomain": "REPLACE_ME",
-      "firebaseProjectId": "REPLACE_ME",
-      "firebaseStorageBucket": "REPLACE_ME",
-      "firebaseMessagingSenderId": "REPLACE_ME",
-      "firebaseAppId": "REPLACE_ME"
+      "firebaseApiKey": "AIzaSyCC3E0-49QO7zIRFqLidxnYpzRu8kuIB3Q",
+      "firebaseAuthDomain": "dashmaxx-b61ed.firebaseapp.com",
+      "firebaseProjectId": "dashmaxx-b61ed",
+      "firebaseStorageBucket": "dashmaxx-b61ed.firebasestorage.app",
+      "firebaseMessagingSenderId": "267996774709",
+      "firebaseAppId": "1:267996774709:web:411ff6cbaa74451ebdcc7c"
     }
   }
 }
