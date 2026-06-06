@@ -46,7 +46,7 @@ export const PLATINUM_TARGETS = { ar: 70, cr: 95, rating: 4.7, deliveries: 100 }
 
 export const DEFAULT_MEETUPS = [
   { id: 'm1', title: 'Tuesday Lunch Rush Strategy', zone: 'downtown', location: 'Temple Coffee, 9th & K St', date: '2026-06-09T11:30', desc: 'Share lunch rush tips over coffee' },
-  { id: 'm2', title: 'South Sac Dinner Blitz', zone: 'south-sac', location: 'Momo's Pizza, Florin Rd', date: '2026-06-11T17:00', desc: 'Dinner rush — learn peak zone tactics' },
+  { id: 'm2', title: 'South Sac Dinner Blitz', zone: 'south-sac', location: "Momo's Pizza, Florin Rd", date: '2026-06-11T17:00', desc: 'Dinner rush — learn peak zone tactics' },
   { id: 'm3', title: 'Elk Grove Weekend Warriors', zone: 'elk-grove', location: 'Sac Brew Bike, Elk Grove Blvd', date: '2026-06-14T10:00', desc: 'Weekend optimization and route planning' },
   { id: 'm4', title: 'Roseville Mall Mastery', zone: 'roseville', location: 'The Falls Event Center', date: '2026-06-18T14:00', desc: 'Mall orders — stack efficiently' },
   { id: 'm5', title: 'Folsom Lake Night Run', zone: 'folsom', location: 'Lake Park Brewery', date: '2026-06-21T20:00', desc: 'Late-night dashing — safety + earnings' },
