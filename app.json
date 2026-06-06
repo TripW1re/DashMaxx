@@ -36,7 +36,10 @@
         }
       ],
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      "expo-sharing",
+      "expo-splash-screen",
+      "expo-status-bar"
     ],
     "extra": {
       "firebaseApiKey": "AIzaSyCC3E0-49QO7zIRFqLidxnYpzRu8kuIB3Q",
