@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "main": "App.js",
   "scripts": {
+    "prestart": "node scripts/prestart.js",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "bundle:check": "npx expo export --platform ios --output-dir dist",
+    "qr": "node scripts/generate-qr.js",
+    "mcp": "node mcp-server/src/index.js",
+    "validate:firebase": "node scripts/validate-firebase.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
