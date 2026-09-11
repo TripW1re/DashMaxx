@@ -1,18 +1,30 @@
-import { format, formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow, parseISO } from 'date-fns';
 
 export const formatCurrency = (amount) => {
   if (amount == null) return '$0.00';
   return '$' + Number(amount).toFixed(2);
 };
 
+// Parse a date-only string (YYYY-MM-DD) as LOCAL time. Using `new Date(str)`
+// treats it as UTC midnight and shifts the day in timezones west of UTC.
+const parseLocalDate = (dateStr) => {
+  if (!dateStr) return null;
+  if (typeof dateStr === 'string' && dateStr.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return parseISO(dateStr);
+  }
+  return new Date(dateStr);
+};
+
 export const formatDate = (dateStr) => {
-  if (!dateStr) return '';
-  return format(new Date(dateStr), 'MMM d');
+  const d = parseLocalDate(dateStr);
+  if (!d || isNaN(d.getTime())) return '';
+  return format(d, 'MMM d');
 };
 
 export const formatDateFull = (dateStr) => {
-  if (!dateStr) return '';
-  return format(new Date(dateStr), 'MMM d, yyyy');
+  const d = parseLocalDate(dateStr);
+  if (!d || isNaN(d.getTime())) return '';
+  return format(d, 'MMM d, yyyy');
 };
 
 export const timeAgo = (timestamp) => {

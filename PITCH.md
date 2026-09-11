@@ -54,7 +54,7 @@
 A: We capture the Dasher's auth token via an in-app WebView login, then proxy requests to DoorDash's GraphQL API from our secure backend. The mobile app never sees raw credentials.
 
 **Q: What about privacy?**
-A: We never store PII on our servers. The token is encrypted at rest, scoped per user, and the user can disconnect at any time.
+A: We never store PII on our servers. The Dasher's token lives only on our backend (never on the phone), our API is key-protected, and the user can disconnect at any time.
 
 **Q: Why not just be a Chrome extension?**
 A: Mobile-first. Dashers are in their car, not at a desk. The phone is the right form factor for real-time decisions.

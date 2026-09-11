@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
-import { getAuth, connectAuthEmulator } from 'firebase/auth';
-import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { getFunctions } from 'firebase/functions';
 import Constants from 'expo-constants';
 
 const getConfig = () => {

@@ -12,15 +12,33 @@
  *                            Firestore Cache
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { getLocalState, saveToStorage } from './localDb';
 
-// Configurable server URL — set to your MCP server address
-const DEFAULT_MCP_URL = 'https://artistic-reflection-production.up.railway.app';
+// Configurable server URL — set to your MCP server address.
+// Priority: user setting (AsyncStorage) > app.json extra.mcpUrl > fallback.
+const FALLBACK_MCP_URL = 'https://artistic-reflection-production.up.railway.app';
 const MCP_URL_KEY = 'dashmaxx_mcp_url';
+const MCP_API_KEY_KEY = 'dashmaxx_mcp_api_key';
 
-let mcpUrl = DEFAULT_MCP_URL;
+let mcpUrl = Constants.expoConfig?.extra?.mcpUrl || FALLBACK_MCP_URL;
 let connected = false;
-let lastHealthCheck = null;
+
+const getMcpApiKey = async () => {
+  try {
+    return await AsyncStorage.getItem(MCP_API_KEY_KEY) || '';
+  } catch {
+    return '';
+  }
+};
+
+export const setMcpApiKey = async (key) => {
+  try {
+    if (key) await AsyncStorage.setItem(MCP_API_KEY_KEY, key);
+    else await AsyncStorage.removeItem(MCP_API_KEY_KEY);
+  } catch {}
+  connected = false;
+};
 
 export const getMcpUrl = async () => {
   try {
@@ -31,24 +49,39 @@ export const getMcpUrl = async () => {
 };
 
 export const setMcpUrl = async (url) => {
-  mcpUrl = url;
-  await AsyncStorage.setItem(MCP_URL_KEY, url);
+  const clean = (url || '').trim().replace(/\/+$/, '');
+  if (!clean) throw new Error('MCP server URL cannot be empty');
+  mcpUrl = clean;
+  await AsyncStorage.setItem(MCP_URL_KEY, clean);
   connected = false;
+};
+
+// ===== Fetch with timeout (AbortController — RN's fetch ignores `timeout`) =====
+
+const fetchWithTimeout = async (url, options = {}, timeoutMs = 15000) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (e) {
+    if (e?.name === 'AbortError') throw new Error('TIMEOUT');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 // ===== Health Check =====
 
 export const checkConnection = async () => {
   try {
-    const res = await fetch(`${mcpUrl}/health`, { method: 'GET', timeout: 5000 });
+    const res = await fetchWithTimeout(`${mcpUrl}/health`, { method: 'GET' }, 5000);
     const data = await res.json();
     connected = data.status === 'ok';
-    lastHealthCheck = new Date().toISOString();
-    return { connected, ...data };
+    return { connected, lastHealthCheck: new Date().toISOString(), ...data };
   } catch {
     connected = false;
-    lastHealthCheck = new Date().toISOString();
-    return { connected: false };
+    return { connected: false, lastHealthCheck: new Date().toISOString() };
   }
 };
 
@@ -58,16 +91,31 @@ export const isConnected = () => connected;
 
 const mcpFetch = async (path, options = {}) => {
   const url = `${mcpUrl}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    timeout: 15000,
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    if (res.status === 401) throw new Error('AUTH_EXPIRED');
-    throw new Error(`MCP error ${res.status}: ${body}`);
+  const apiKey = await getMcpApiKey();
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (apiKey) headers['x-api-key'] = apiKey;
+
+  let res;
+  try {
+    res = await fetchWithTimeout(url, { ...options, headers }, 15000);
+  } catch (e) {
+    connected = false;
+    throw e;
   }
+
+  if (!res.ok) {
+    let serverError = null;
+    try {
+      const parsed = await res.json();
+      serverError = parsed?.error || parsed?.status || null;
+    } catch {}
+    if (res.status === 401) {
+      if (serverError === 'UNAUTHORIZED') throw new Error('API_KEY_REJECTED');
+      throw new Error('AUTH_EXPIRED');
+    }
+    throw new Error(`MCP error ${res.status}${serverError ? `: ${serverError}` : ''}`);
+  }
+  connected = true;
   return res.json();
 };
 
@@ -121,6 +169,8 @@ export const setDoorDashToken = async (token) => {
 
 // ===== Data Merge =====
 
+const newShiftId = () => 'dd-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+
 const mergeDoorDashData = async (result) => {
   const state = getLocalState();
   let changed = false;
@@ -140,6 +190,7 @@ const mergeDoorDashData = async (result) => {
     const existingToday = state.shifts.find(s => s.date === today.date && s.source === 'doordash');
     if (!existingToday && (today.earnings > 0 || today.deliveries > 0)) {
       state.shifts.push({
+        id: newShiftId(),
         date: today.date,
         earnings: today.earnings || 0,
         hours: today.hours || 0,
@@ -160,6 +211,7 @@ const mergeDoorDashData = async (result) => {
     result.earnings.days.forEach(d => {
       if (d.earnings > 0 && !state.shifts.find(s => s.date === d.date && s.source === 'doordash')) {
         state.shifts.push({
+          id: newShiftId(),
           date: d.date,
           earnings: d.earnings || 0,
           hours: d.hours || 0,
@@ -181,6 +233,7 @@ const mergeDoorDashData = async (result) => {
     result.deliveries.deliveries.forEach(d => {
       if (!state.shifts.find(s => s.orderId === d.orderId && s.source === 'doordash')) {
         state.shifts.push({
+          id: newShiftId(),
           date: d.date,
           earnings: d.earnings || 0,
           hours: d.hours || 0,
@@ -211,7 +264,6 @@ export const startBackgroundSync = async (intervalMinutes = 5) => {
   stopBackgroundSync();
   const check = await checkConnection();
   if (!check.connected) {
-    console.log('[MCP] Server not reachable — background sync disabled');
     return false;
   }
 
@@ -221,8 +273,9 @@ export const startBackgroundSync = async (intervalMinutes = 5) => {
   syncInterval = setInterval(async () => {
     try {
       await syncAllFromDoorDash();
-    } catch (e) {
-      console.log('[MCP] Background sync failed:', e.message);
+    } catch {
+      // Offline/transient errors — checkConnection() already marks us offline;
+      // the next tick will retry as long as the interval is alive.
     }
   }, intervalMinutes * 60 * 1000);
 

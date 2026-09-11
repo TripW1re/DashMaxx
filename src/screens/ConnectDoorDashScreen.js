@@ -20,7 +20,7 @@ import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { showToast } from '../components/Toast';
 import { THEME } from '../utils/constants';
-import { setMcpUrl, setDoorDashToken, syncAllFromDoorDash, checkConnection, startBackgroundSync, getMcpUrl } from '../services/mcpClient';
+import { setDoorDashToken, syncAllFromDoorDash, checkConnection, startBackgroundSync, getMcpUrl } from '../services/mcpClient';
 import { getLocalState, saveToStorage } from '../services/localDb';
 
 // Injected JavaScript that runs in the WebView context
@@ -160,18 +160,6 @@ const INJECTED_JS = `
 })();
 `;
 
-// Styling injected into the WebView for a native-ish feel
-const WEBVIEW_STYLES = `
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<style>
-  body { font-family: -apple-system, sans-serif; }
-  .login-container { padding: 16px; }
-  button, .btn, [data-testid="login-button"] { 
-    border-radius: 8px !important;
-  }
-</style>
-`;
-
 export default function ConnectDoorDashScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const webViewRef = useRef(null);
@@ -181,11 +169,71 @@ export default function ConnectDoorDashScreen({ navigation }) {
   const [progress, setProgress] = useState(0);
   const [url, setUrl] = useState('https://dasher.doordash.com');
 
+  // Handle the captured token — send to MCP server and sync
+  const handleTokenCapture = useCallback(async (token) => {
+    setProgress(50);
+    setStatusMessage('Sending token to MCP server...');
+
+    // Get MCP server URL
+    const mcpUrl = await getMcpUrl();
+    if (!mcpUrl) {
+      throw new Error('MCP server URL not configured');
+    }
+
+    // Send token to MCP server. The token lives server-side only —
+    // we never persist DoorDash credentials on this device.
+    try {
+      await setDoorDashToken(token);
+    } catch (e) {
+      if (e.message === 'API_KEY_REJECTED') {
+        throw new Error('Server rejected the API key — check the MCP API Key in Settings');
+      }
+      throw new Error('Failed to send token to server: ' + e.message);
+    }
+
+    setProgress(70);
+    setStatusMessage('Checking connection...');
+
+    // Verify connection
+    const health = await checkConnection();
+    if (!health.connected) {
+      throw new Error('MCP server unreachable at ' + mcpUrl);
+    }
+
+    setProgress(85);
+    setStatus('syncing');
+    setStatusMessage('Syncing your DoorDash data...');
+
+    // Start sync
+    const result = await syncAllFromDoorDash();
+    if (!result.success) {
+      if (result.error === 'AUTH_EXPIRED') {
+        throw new Error('DoorDash rejected the session token — log in again');
+      }
+      throw new Error('Sync failed: ' + (result.error || 'unknown error'));
+    }
+
+    // Record the successful connection time (token itself stays on the server)
+    const state = getLocalState();
+    state.settings.doorDashConnected = true;
+    state.settings.lastDoorDashSync = new Date().toISOString();
+    await saveToStorage(state);
+
+    // Start background polling
+    try { await startBackgroundSync(5); } catch {}
+
+    setProgress(100);
+    setStatus('done');
+    setStatusMessage('✅ Connected! Dashboard is live.');
+
+    showToast('🚚 Live DoorDash data active!');
+  }, []);
+
   // Handle messages from WebView injected JS
   const handleMessage = useCallback(async (event) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      
+
       switch (data.type) {
         case 'INTERCEPTOR_READY':
           setStatus('login');
@@ -194,7 +242,7 @@ export default function ConnectDoorDashScreen({ navigation }) {
 
         case 'TOKEN_CAPTURED':
           if (capturedToken) return; // Already got one
-          
+
           const token = data.token;
           if (!token || token.length < 20) return; // Validate token format
 
@@ -217,60 +265,11 @@ export default function ConnectDoorDashScreen({ navigation }) {
           break;
       }
     } catch {}
-  }, [capturedToken]);
-
-  // Handle the captured token — send to MCP server and sync
-  const handleTokenCapture = async (token) => {
-    setProgress(50);
-    setStatusMessage('Sending token to MCP server...');
-
-    // Get MCP server URL
-    const mcpUrl = await getMcpUrl();
-    if (!mcpUrl) {
-      throw new Error('MCP server URL not configured');
-    }
-
-    // Send token to MCP server
-    try {
-      await setDoorDashToken(token);
-    } catch {}
-
-    setProgress(70);
-    setStatusMessage('Checking connection...');
-
-    // Verify connection
-    const health = await checkConnection();
-    if (!health.connected) {
-      throw new Error('MCP server unreachable at ' + mcpUrl);
-    }
-
-    setProgress(85);
-    setStatus('syncing');
-    setStatusMessage('Syncing your DoorDash data...');
-
-    // Start sync
-    const result = await syncAllFromDoorDash();
-    
-    // Save token to local storage too
-    const state = getLocalState();
-    state.settings.doorDashToken = token;
-    state.settings.doorDashConnected = true;
-    state.settings.lastDoorDashSync = new Date().toISOString();
-    await saveToStorage(state);
-
-    // Start background polling
-    try { await startBackgroundSync(5); } catch {}
-
-    setProgress(100);
-    setStatus('done');
-    setStatusMessage('✅ Connected! Dashboard is live.');
-
-    showToast('🚚 Live DoorDash data active!');
-  };
+  }, [capturedToken, handleTokenCapture]);
 
   const handleNavigationStateChange = useCallback((navState) => {
     setUrl(navState.url);
-    
+
     // Detect which page we're on
     if (navState.url.includes('/login') || navState.url.includes('/auth')) {
       setStatus('login');

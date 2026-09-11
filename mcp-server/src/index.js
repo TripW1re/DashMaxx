@@ -19,6 +19,7 @@ import { createServer } from 'http';
 import { DoorDashClient } from './clients/doorDashClient.js';
 import { TokenManager } from './lib/tokenManager.js';
 import { CacheLayer } from './lib/cache.js';
+import { isValidToken, toBearerToken, sanitizeLimit, sanitizeOffset, isValidDateParam } from './lib/validation.js';
 import * as Tools from './tools/index.js';
 
 const PORT = parseInt(process.env.PORT || '3100', 10);
@@ -78,6 +79,7 @@ async function initialize() {
   }
 
   console.log(`║  🚀 Server starting on port ${PORT}`);
+  console.log(`║  🔐 API key auth: ${API_KEY ? 'ENABLED (x-api-key required)' : 'DISABLED — set DD_API_KEY in production'}`);
   console.log('╚══════════════════════════════════════════════╝');
   console.log('');
 
@@ -133,13 +135,54 @@ async function runFullSync() {
 }
 
 // ===== HTTP Server (REST API for mobile app) =====
+
+// Optional API key auth. When DD_API_KEY is set, every endpoint except
+// /health and / requires the `x-api-key` header to match. This protects
+// the token + data endpoints when the server is deployed publicly.
+const API_KEY = process.env.DD_API_KEY || '';
+
+// Simple per-IP rate limiter (token bucket).
+const RATE_LIMIT_PER_MINUTE = 120;
+const rateBuckets = new Map();
+setInterval(() => rateBuckets.clear(), 60 * 1000).unref?.();
+
+function rateLimited(ip) {
+  if (!ip) return false;
+  const count = (rateBuckets.get(ip) || 0) + 1;
+  rateBuckets.set(ip, count);
+  return count > RATE_LIMIT_PER_MINUTE;
+}
+
+function isAuthorized(req) {
+  if (!API_KEY) return true;
+  return req.headers['x-api-key'] === API_KEY;
+}
+
+async function readBody(req, maxBytes = 100 * 1024) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        reject(new Error('PAYLOAD_TOO_LARGE'));
+        req.destroy();
+        return;
+      }
+      data += chunk;
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
 async function handleRequest(req, res) {
   serverStats.requests++;
 
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
   res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') {
@@ -152,15 +195,33 @@ async function handleRequest(req, res) {
   const path = url.pathname;
   const params = Object.fromEntries(url.searchParams);
 
-  let body = '';
-  if (req.method === 'POST') {
-    body = await new Promise((resolve) => {
-      let data = '';
-      req.on('data', chunk => data += chunk);
-      req.on('end', () => resolve(data));
-    });
+  // Rate limit (applies to everything except OPTIONS)
+  const ip = req.socket?.remoteAddress || '';
+  if (rateLimited(ip)) {
+    res.writeHead(429);
+    res.end(JSON.stringify({ error: 'Too many requests', status: 'RATE_LIMITED' }));
+    return;
   }
-  const postBody = body ? JSON.parse(body || '{}') : {};
+
+  // Auth gate for everything except health/help endpoints
+  const isPublic = path === '/health' || path === '/' || path === '';
+  if (!isPublic && !isAuthorized(req)) {
+    serverStats.errors++;
+    res.writeHead(401);
+    res.end(JSON.stringify({ error: 'Unauthorized — provide x-api-key', status: 'UNAUTHORIZED' }));
+    return;
+  }
+
+  let postBody = {};
+  try {
+    const body = req.method === 'POST' ? await readBody(req) : '';
+    postBody = body ? JSON.parse(body) : {};
+  } catch (e) {
+    serverStats.errors++;
+    res.writeHead(e.message === 'PAYLOAD_TOO_LARGE' ? 413 : 400);
+    res.end(JSON.stringify({ error: e.message === 'PAYLOAD_TOO_LARGE' ? 'Payload too large' : 'Invalid JSON body', status: 'BAD_REQUEST' }));
+    return;
+  }
 
   try {
     let result;
@@ -196,6 +257,16 @@ async function handleRequest(req, res) {
 
       case '/sync/earnings':
         if (!tokenManager.hasToken()) throw new Error('No DoorDash token configured');
+        if (params.startDate && !isValidDateParam(params.startDate)) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Invalid startDate — use YYYY-MM-DD', status: 'BAD_REQUEST' }));
+          return;
+        }
+        if (params.endDate && !isValidDateParam(params.endDate)) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: 'Invalid endDate — use YYYY-MM-DD', status: 'BAD_REQUEST' }));
+          return;
+        }
         result = await Tools.syncEarnings(doorDashClient, cache, UID, {
           startDate: params.startDate,
           endDate: params.endDate,
@@ -205,8 +276,8 @@ async function handleRequest(req, res) {
       case '/sync/deliveries':
         if (!tokenManager.hasToken()) throw new Error('No DoorDash token configured');
         result = await Tools.syncDeliveries(doorDashClient, cache, UID, {
-          limit: parseInt(params.limit || '50'),
-          offset: parseInt(params.offset || '0'),
+          limit: sanitizeLimit(params.limit, 50, 100),
+          offset: sanitizeOffset(params.offset, 0),
         });
         break;
 
@@ -218,8 +289,8 @@ async function handleRequest(req, res) {
       case '/predict':
         if (!tokenManager.hasToken()) throw new Error('No DoorDash token configured');
         result = await Tools.predictHotZones(doorDashClient, cache, UID, {
-          dayOfWeek: parseInt(params.day) || undefined,
-          hour: parseInt(params.hour) || undefined,
+          dayOfWeek: Number.isInteger(parseInt(params.day)) ? Math.min(6, Math.max(0, parseInt(params.day))) : undefined,
+          hour: Number.isInteger(parseInt(params.hour)) ? Math.min(23, Math.max(0, parseInt(params.hour))) : undefined,
         });
         break;
 
@@ -229,13 +300,20 @@ async function handleRequest(req, res) {
 
       case '/token':
         if (req.method === 'POST') {
-          const token = postBody.token;
-          if (!token) throw new Error('Token required');
+          const rawToken = postBody.token;
+          if (!isValidToken(rawToken)) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Invalid token — must be a non-empty bearer string (20-4096 chars, no spaces)', status: 'BAD_REQUEST' }));
+            return;
+          }
+          const token = rawToken.trim().replace(/^Bearer\s+/i, '');
           tokenManager.setToken(token);
           doorDashClient.setToken(token);
-          result = { success: true, message: 'Token updated' };
+          // Kick a sync after the token is set so data is ready immediately
+          setTimeout(() => { runFullSync().catch(() => {}); }, 250);
+          result = { success: true, message: 'Token updated', configured: true };
         } else {
-          result = { configured: tokenManager.hasToken(), source: tokenManager.source };
+          result = { configured: tokenManager.hasToken() };
         }
         break;
 

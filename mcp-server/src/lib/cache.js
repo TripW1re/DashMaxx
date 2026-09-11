@@ -102,23 +102,13 @@ export class CacheLayer {
     // Persist to Firestore
     if (db && uid) {
       try {
-        const batch = db.batch();
         const docRef = db.collection('cache').doc(key);
-        batch.set(docRef, {
+        await docRef.set({
           ...cacheEntry,
           uid,
           type,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        // Clean up old cache entries
-        const oldRef = db.collection('cache').doc(key + '_history_' + Date.now());
-        batch.set(oldRef, {
-          ...cacheEntry,
-          uid, type,
-          isHistory: true,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }, { merge: true });
-        await batch.commit();
       } catch (e) {
         console.warn('[Cache] Firestore write failed:', e.message);
       }

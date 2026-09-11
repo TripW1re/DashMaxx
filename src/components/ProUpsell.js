@@ -8,7 +8,7 @@ export default function ProUpsell({ onPress }) {
       <Text style={styles.title}>⭐ Pro Feature</Text>
       <Text style={styles.desc}>Subscribe to unlock this and all other features</Text>
       <TouchableOpacity style={styles.button} onPress={onPress}>
-        <Text style={styles.buttonText}>View Plans</Text>
+        <Text style={styles.buttonText}>Go to Settings</Text>
       </TouchableOpacity>
     </View>
   );

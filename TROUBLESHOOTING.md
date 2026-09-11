@@ -71,6 +71,18 @@ npm run bundle:check
 ```
 Should output: `iOS Bundled Xms App.js (N modules)` with no errors.
 
+For Android too:
+```bash
+npx expo export --platform android --output-dir dist
+```
+
+Run the test suites:
+```bash
+npm test            # app unit tests (Jest)
+npm run test:mcp    # MCP server tests (node:test)
+npm run lint        # ESLint
+```
+
 ## Quick Health Checks
 
 | What | Command |
@@ -79,6 +91,13 @@ Should output: `iOS Bundled Xms App.js (N modules)` with no errors.
 | MCP server alive | `curl https://artistic-reflection-production.up.railway.app/health` |
 | Firebase config valid | `npm run validate:firebase` |
 | Port 8081 free | `npm run prestart` |
+| App unit tests | `npm test` |
+| MCP server tests | `npm run test:mcp` |
+| Lint | `npm run lint` |
+
+### MCP server returns 401 UNAUTHORIZED
+**Cause:** The server has `DD_API_KEY` set but the app isn't sending a matching `x-api-key`.
+**Fix:** Open Settings → Configure → paste the same `DD_API_KEY` value into the "MCP API Key" field, then tap Manual Connect.
 
 ## Architecture Reference
 
@@ -88,12 +107,14 @@ iPhone (Expo Go)
 Metro Bundler (localhost:8081)
     ↓ JS bundle
 DashMaxx app (React Native)
-    ↓ fetch()
+    ↓ fetch() with x-api-key
 MCP Server (Railway, HTTPS)
     ↓ Bearer token
 DoorDash GraphQL API
     ↓ real data
 Firestore cache ← → Realtime sync to app
+    ↓
+Firebase Auth (anonymous) + Firestore social layer
 ```
 
 ## File Map

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import Card from '../components/Card';
 import { showToast } from '../components/Toast';
 import { THEME, TRIAL_DAYS, PLATINUM_TARGETS } from '../utils/constants';
-import { formatCurrency, daysSince } from '../utils/format';
-import { getLocalState, saveToStorage, resetLocalState } from '../services/localDb';
-import { checkConnection, setMcpUrl, setDoorDashToken, syncAllFromDoorDash, getMcpUrl, startBackgroundSync, isConnected } from '../services/mcpClient';
+import { daysSince } from '../utils/format';
+import { getLocalState, saveToStorage, resetLocalState, deepMerge, getDefaultState, subscribeToState } from '../services/localDb';
+import { checkConnection, setMcpUrl, setMcpApiKey, setDoorDashToken, syncAllFromDoorDash, getMcpUrl, startBackgroundSync } from '../services/mcpClient';
 
 const generateReferralCode = () => 'DASH-' + Math.random().toString(36).substring(2, 8).toUpperCase();
 
@@ -16,21 +18,39 @@ export default function SettingsScreen({ navigation }) {
   const [showReset, setShowReset] = useState(false);
   const [showDoorDash, setShowDoorDash] = useState(false);
   const [ddToken, setDdToken] = useState('');
-  const [mcpUrlInput, setMcpUrlInput] = useState('https://artistic-reflection-production.up.railway.app');
+  const [mcpUrlInput, setMcpUrlInput] = useState('');
+  const [mcpApiKeyInput, setMcpApiKeyInput] = useState('');
   const [mcpConnected, setMcpConnected] = useState(false);
   const [mcpStatus, setMcpStatus] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(state.settings.lastDoorDashSync || null);
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState('');
 
   const refresh = () => { const s = getLocalState(); setState({ ...s }); setLastSync(s.settings?.lastDoorDashSync || null); };
+
+  useEffect(() => subscribeToState(() => refresh()), []);
+
+  const runHealthCheck = async () => {
+    const health = await checkConnection();
+    setMcpConnected(health.connected);
+    setMcpStatus(health);
+  };
 
   useEffect(() => {
     (async () => {
       const url = await getMcpUrl();
       setMcpUrlInput(url);
-      const health = await checkConnection();
-      setMcpConnected(health.connected);
-      setMcpStatus(health);
+      await runHealthCheck();
+      // Generate a stable referral code on first run
+      const st = getLocalState();
+      if (!st.settings.referralCode) {
+        st.settings.referralCode = generateReferralCode();
+        await saveToStorage(st);
+      }
+      // Re-check every 30s while the screen is mounted
+      const interval = setInterval(runHealthCheck, 30000);
+      return () => clearInterval(interval);
     })();
   }, []);
 
@@ -63,30 +83,36 @@ export default function SettingsScreen({ navigation }) {
   const handleConnectDoorDash = async () => {
     setSyncing(true);
     try {
-      // Set MCP server URL
+      // Persist server URL + API key first
       await setMcpUrl(mcpUrlInput);
-      // Send DoorDash token to MCP server
+      await setMcpApiKey(mcpApiKeyInput.trim());
+      // Send DoorDash token to MCP server (optional — auto-connect does this too)
+      let tokenError = null;
       const tokenToSend = ddToken.trim().replace('Bearer ', '');
       if (tokenToSend) {
-        try { await setDoorDashToken(tokenToSend); } catch {}
+        try { await setDoorDashToken(tokenToSend); } catch (e) { tokenError = e; }
       }
       // Check connection
       const health = await checkConnection();
       setMcpConnected(health.connected);
-      if (health.connected) {
+      setMcpStatus(health);
+      if (!health.connected) {
+        showToast('⚠️ MCP server not reachable at ' + mcpUrlInput);
+      } else if (tokenError) {
+        showToast('⚠️ Server reachable but token upload failed: ' + tokenError.message);
+      } else {
         // Start sync
         const result = await syncAllFromDoorDash();
         if (result.success) {
           setLastSync(new Date().toISOString());
           await startBackgroundSync(5);
           showToast('✅ DoorDash connected! Dashboard synced.');
+        } else if (result.error === 'AUTH_EXPIRED') {
+          showToast('⚠️ DoorDash token expired — reconnect via Auto-Connect');
         } else {
           showToast('⚠️ Connected but sync failed: ' + (result.error || 'unknown'));
         }
-      } else {
-        showToast('⚠️ MCP server not reachable at ' + mcpUrlInput);
       }
-      setMcpStatus(health);
     } catch (e) {
       showToast('❌ Connection failed: ' + e.message);
     }
@@ -101,19 +127,75 @@ export default function SettingsScreen({ navigation }) {
       const result = await syncAllFromDoorDash();
       if (result.success) {
         setLastSync(new Date().toISOString());
-        showToast('✅ Sync complete! ' + (result._duration || '') + 'ms');
+        showToast('✅ Sync complete!');
+      } else if (result.error === 'AUTH_EXPIRED') {
+        showToast('⚠️ DoorDash token expired — reconnect via Auto-Connect');
       } else {
         showToast('⚠️ Sync issue: ' + (result.error || 'unknown'));
       }
       refresh();
+      await runHealthCheck();
     } catch (e) {
-      showToast('❌ Sync failed: ' + e.message);
+      const msg = e.message === 'AUTH_EXPIRED' ? 'DoorDash token expired — reconnect' : e.message;
+      showToast('❌ Sync failed: ' + msg);
+      await runHealthCheck();
     }
     setSyncing(false);
   };
 
-  const handleExport = () => { showToast('📄 Export via MCP server'); };
-  const handleImport = () => { showToast('📂 Import via MCP server'); };
+  // ===== Export / Import (real file + share sheet) =====
+
+  const handleExport = async () => {
+    try {
+      const payload = JSON.parse(JSON.stringify(getLocalState()));
+      // Never export locally-cached credentials
+      delete payload.settings?.doorDashToken;
+      delete payload.settings?.doorDashConnected;
+
+      const file = new FileSystem.File(FileSystem.Paths.cache, 'dashmaxx-backup.json');
+      file.create({ overwrite: true });
+      file.write(JSON.stringify(payload, null, 2));
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri, {
+          mimeType: 'application/json',
+          dialogTitle: 'Export DashMaxx data',
+        });
+      } else {
+        showToast('📄 Backup written — sharing unavailable on this device');
+      }
+    } catch (e) {
+      showToast('❌ Export failed: ' + (e?.message || 'unknown error'));
+    }
+  };
+
+  const handleImport = async () => {
+    const text = importText.trim();
+    if (!text) { showToast('⚠️ Paste your backup JSON first'); return; }
+    if (text.length > 1024 * 1024) { showToast('⚠️ Backup too large (max 1 MB)'); return; }
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid shape');
+      const defaults = getDefaultState();
+      const clean = getDefaultState();
+      Object.keys(defaults).forEach(key => {
+        if (parsed[key] !== undefined) clean[key] = parsed[key];
+      });
+      // Strip credentials on import too
+      if (clean.settings) {
+        delete clean.settings.doorDashToken;
+        delete clean.settings.doorDashConnected;
+      }
+      const merged = deepMerge(getDefaultState(), clean);
+      await saveToStorage(merged);
+      setShowImport(false);
+      setImportText('');
+      refresh();
+      showToast('✅ Data imported!');
+    } catch {
+      showToast('❌ Invalid JSON — check the backup text');
+    }
+  };
 
   const syncTime = lastSync ? new Date(lastSync).toLocaleTimeString() : null;
 
@@ -194,7 +276,7 @@ export default function SettingsScreen({ navigation }) {
         <Text style={styles.cardTitle}>📦 Data</Text>
         <View style={styles.actions}>
           <TouchableOpacity style={[styles.btn, styles.btnSecondary, { flex: 1 }]} onPress={handleExport}><Text style={styles.btnSecondaryText}>📤 Export</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.btn, styles.btnSecondary, { flex: 1 }]} onPress={handleImport}><Text style={styles.btnSecondaryText}>📂 Import</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.btn, styles.btnSecondary, { flex: 1 }]} onPress={() => { setImportText(''); setShowImport(true); }}><Text style={styles.btnSecondaryText}>📂 Import</Text></TouchableOpacity>
           <TouchableOpacity style={[styles.btn, { flex: 1, backgroundColor: THEME.redBg, borderWidth: 1, borderColor: THEME.red }]} onPress={() => setShowReset(true)}>
             <Text style={{ color: THEME.red, fontWeight: '600', fontSize: 12 }}>🗑️ Clear</Text>
           </TouchableOpacity>
@@ -203,7 +285,7 @@ export default function SettingsScreen({ navigation }) {
 
       <Card>
         <Text style={styles.cardTitle}>📋 Referral Code</Text>
-        <Text style={styles.referralCode}>{state.settings.referralCode || generateReferralCode()}</Text>
+        <Text style={styles.referralCode}>{state.settings.referralCode || 'Generating...'}</Text>
         <Text style={{ color: THEME.text3, fontSize: 11, marginTop: 4 }}>Share this code with other dashers to earn 30% commission</Text>
       </Card>
 
@@ -224,12 +306,17 @@ export default function SettingsScreen({ navigation }) {
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>MCP Server URL</Text>
-              <TextInput style={styles.input} value={mcpUrlInput} onChangeText={setMcpUrlInput} placeholder="http://localhost:3100" placeholderTextColor={THEME.text3} autoCapitalize="none" />
+              <TextInput style={styles.input} value={mcpUrlInput} onChangeText={setMcpUrlInput} placeholder="https://your-server.example.com" placeholderTextColor={THEME.text3} autoCapitalize="none" keyboardType="url" />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>MCP API Key (optional — set DD_API_KEY on the server)</Text>
+              <TextInput style={styles.input} value={mcpApiKeyInput} onChangeText={setMcpApiKeyInput} placeholder="Server API key" placeholderTextColor={THEME.text3} autoCapitalize="none" autoCorrect={false} secureTextEntry />
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>DoorDash Auth Token (manual)</Text>
-              <TextInput style={[styles.input, { height: 80 }]} value={ddToken} onChangeText={setDdToken} placeholder="Paste your Bearer token" placeholderTextColor={THEME.text3} multiline autoCapitalize="none" />
+              <TextInput style={[styles.input, { height: 80 }]} value={ddToken} onChangeText={setDdToken} placeholder="Paste your Bearer token" placeholderTextColor={THEME.text3} multiline autoCapitalize="none" autoCorrect={false} />
             </View>
 
             <TouchableOpacity style={styles.helpBtn} onPress={() => showToast('Use Auto-Connect instead — it captures the token automatically')}>
@@ -243,6 +330,32 @@ export default function SettingsScreen({ navigation }) {
               <TouchableOpacity style={[styles.btn, styles.btnPrimary, { flex: 1 }]} onPress={handleConnectDoorDash} disabled={syncing}>
                 <Text style={styles.btnPrimaryText}>{syncing ? '⏳ Connecting...' : 'Manual Connect'}</Text>
               </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Import Modal */}
+      <Modal visible={showImport} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitle}>📂 Import Data</Text>
+            <Text style={{ color: THEME.text2, fontSize: 12, marginBottom: 10 }}>
+              Paste the JSON exported from another DashMaxx device. Your existing data will be merged.
+            </Text>
+            <TextInput
+              style={[styles.input, { height: 140, textAlignVertical: 'top' }]}
+              value={importText}
+              onChangeText={setImportText}
+              placeholder='{"shifts": [...], "platinum": {...}}'
+              placeholderTextColor={THEME.text3}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.btn, styles.btnSecondary, { flex: 1 }]} onPress={() => setShowImport(false)}><Text style={styles.btnSecondaryText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.btn, styles.btnPrimary, { flex: 1 }]} onPress={handleImport}><Text style={styles.btnPrimaryText}>Import</Text></TouchableOpacity>
             </View>
           </View>
         </View>

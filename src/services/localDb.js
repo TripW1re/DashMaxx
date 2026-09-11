@@ -1,7 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { isFirebaseReady, getDb, getAuth_ } from '../config/firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, query, where, orderBy, getDocs, onSnapshot, Timestamp, setDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 
 const LOCAL_KEY = 'dashmaxx_state';
 
@@ -17,10 +14,11 @@ const defaultState = {
 
 let localState = null;
 let stateListeners = [];
-let firebaseUnsubs = [];
+
+export const getDefaultState = () => JSON.parse(JSON.stringify(defaultState));
 
 export const getLocalState = () => {
-  if (!localState) localState = { ...defaultState };
+  if (!localState) localState = getDefaultState();
   return localState;
 };
 
@@ -30,13 +28,34 @@ export const loadFromStorage = async () => {
     if (raw) {
       const saved = JSON.parse(raw);
       localState = deepMerge(defaultState, saved);
+      migrateState(localState);
     } else {
-      localState = { ...defaultState };
+      localState = getDefaultState();
     }
   } catch {
-    localState = { ...defaultState };
+    localState = getDefaultState();
   }
   return localState;
+};
+
+// Backfill IDs for shifts created before IDs were introduced,
+// and keep nested structures in the expected shape.
+const migrateState = (state) => {
+  if (Array.isArray(state.shifts)) {
+    let changed = false;
+    state.shifts.forEach(sh => {
+      if (!sh.id) {
+        sh.id = 'shift-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+        changed = true;
+      }
+    });
+    if (changed) AsyncStorage.setItem(LOCAL_KEY, JSON.stringify(state)).catch(() => {});
+  }
+  if (!state.social || typeof state.social !== 'object') state.social = { ...defaultState.social };
+  if (!state.meetups || typeof state.meetups !== 'object') state.meetups = { ...defaultState.meetups };
+  if (!state.revenueShare || typeof state.revenueShare !== 'object') state.revenueShare = { ...defaultState.revenueShare };
+  if (!state.platinum || typeof state.platinum !== 'object') state.platinum = { ...defaultState.platinum };
+  if (!state.settings || typeof state.settings !== 'object') state.settings = { ...defaultState.settings };
 };
 
 export const saveToStorage = async (state) => {
@@ -44,8 +63,8 @@ export const saveToStorage = async (state) => {
     localState = state;
     await AsyncStorage.setItem(LOCAL_KEY, JSON.stringify(state));
     stateListeners.forEach(fn => fn(state));
-  } catch (e) {
-    // silently fail
+  } catch {
+    // storage write failed — keep in-memory state so the UI still works
   }
 };
 
@@ -54,7 +73,7 @@ export const subscribeToState = (fn) => {
   return () => { stateListeners = stateListeners.filter(f => f !== fn); };
 };
 
-const deepMerge = (defaults, overrides) => {
+export const deepMerge = (defaults, overrides) => {
   const result = { ...defaults };
   if (!overrides || typeof overrides !== 'object') return result;
   Object.keys(overrides).forEach(key => {
@@ -68,7 +87,7 @@ const deepMerge = (defaults, overrides) => {
 };
 
 export const resetLocalState = async () => {
-  localState = { ...defaultState };
+  localState = getDefaultState();
   await AsyncStorage.removeItem(LOCAL_KEY);
   return localState;
 };

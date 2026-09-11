@@ -7,18 +7,20 @@ import ProUpsell from '../components/ProUpsell';
 import { showToast } from '../components/Toast';
 import { THEME, PLATINUM_TARGETS } from '../utils/constants';
 import { calcTier } from '../utils/calculations';
-import { getLocalState, saveToStorage } from '../services/localDb';
+import { getLocalState, saveToStorage, subscribeToState } from '../services/localDb';
 
-export default function PlatinumScreen() {
+export default function PlatinumScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState(getLocalState());
   const [editModal, setEditModal] = useState(false);
   const [form, setForm] = useState({ ...state.platinum });
 
+  useEffect(() => subscribeToState(() => setState({ ...getLocalState() })), []);
+
   const refresh = () => setState({ ...getLocalState() });
 
   const p = state.platinum;
-  const t = PLATINUM_TARGETS;
+  const t = state.settings.platinumTargets || PLATINUM_TARGETS;
   const tier = calcTier(p);
   const targets = [
     { label: 'Acceptance Rate', value: p.acceptanceRate, target: t.ar, pct: Math.min(100, (p.acceptanceRate / t.ar) * 100), color: p.acceptanceRate >= t.ar ? THEME.green : THEME.accent },
@@ -28,7 +30,7 @@ export default function PlatinumScreen() {
   ];
   const overall = Math.round(targets.reduce((s, t) => s + t.pct, 0) / targets.length);
 
-  if (!state.settings.isPro) return <ScrollView style={[styles.container, { paddingTop: insets.top + 8 }]}><ProUpsell onPress={() => {}} /></ScrollView>;
+  if (!state.settings.isPro) return <ScrollView style={[styles.container, { paddingTop: insets.top + 8 }]}><ProUpsell onPress={() => navigation?.navigate('Settings')} /></ScrollView>;
 
   return (
     <ScrollView style={[styles.container, { paddingTop: insets.top + 8 }]} contentContainerStyle={{ padding: 12, paddingBottom: 100 }}>

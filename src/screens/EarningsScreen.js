@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, FlatList, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, TextInput, Modal, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Clipboard from 'expo-clipboard';
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import ProgressBar from '../components/ProgressBar';
@@ -9,13 +10,15 @@ import { showToast } from '../components/Toast';
 import { THEME, REVENUE_TIERS, SACRAMENTO_ZONES } from '../utils/constants';
 import { formatCurrency, formatDate, today } from '../utils/format';
 import { calcRevenueShare } from '../utils/calculations';
-import { getLocalState, saveToStorage } from '../services/localDb';
+import { getLocalState, saveToStorage, subscribeToState } from '../services/localDb';
 
-export default function EarningsScreen() {
+export default function EarningsScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState(getLocalState());
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(!!route?.params?.openLogShift);
   const [form, setForm] = useState({ date: today(), earnings: '', hours: '', deliveries: '', mileage: '', zone: SACRAMENTO_ZONES[0].id });
+
+  useEffect(() => subscribeToState(() => setState({ ...getLocalState() })), []);
 
   const refresh = () => { setState({ ...getLocalState() }); };
 
@@ -40,15 +43,34 @@ export default function EarningsScreen() {
   ].filter(m => m.target > 0);
 
   const handleSave = async () => {
+    const dateStr = String(form.date || '').trim();
+    const earnings = parseFloat(form.earnings) || 0;
+    const hours = parseFloat(form.hours) || 0;
+    const deliveries = parseInt(form.deliveries) || 0;
+    const mileage = parseFloat(form.mileage) || 0;
+
+    // Validation
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr) || isNaN(new Date(dateStr + 'T12:00:00').getTime())) {
+      showToast('⚠️ Enter a valid date (YYYY-MM-DD)');
+      return;
+    }
+    if (!earnings && !hours) { showToast('Enter at least earnings or hours'); return; }
+    if (earnings < 0 || hours < 0 || deliveries < 0 || mileage < 0) {
+      showToast('⚠️ Values cannot be negative');
+      return;
+    }
+    if (hours > 24) { showToast('⚠️ Hours cannot exceed 24'); return; }
+
     const shift = {
-      date: form.date,
-      earnings: parseFloat(form.earnings) || 0,
-      hours: parseFloat(form.hours) || 0,
-      deliveries: parseInt(form.deliveries) || 0,
-      mileage: parseFloat(form.mileage) || 0,
+      id: 'shift-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
+      date: dateStr,
+      earnings,
+      hours,
+      deliveries,
+      mileage,
       zone: form.zone,
+      source: 'manual',
     };
-    if (!shift.earnings && !shift.hours) { showToast('Enter at least earnings or hours'); return; }
     const newState = { ...state };
     newState.shifts = [...newState.shifts, shift];
     newState.revenueShare.shiftsLogged += 1;
@@ -60,13 +82,14 @@ export default function EarningsScreen() {
     showToast('✅ Shift saved!');
   };
 
-  const handleDelete = async (idx) => {
+  const handleDelete = async (shiftId) => {
     const newState = { ...state };
-    const removed = newState.shifts[idx];
-    newState.shifts = newState.shifts.filter((_, i) => i !== idx);
+    const removed = newState.shifts.find(sh => (sh.id || sh.date) === shiftId);
+    newState.shifts = newState.shifts.filter(sh => (sh.id || sh.date) !== shiftId);
     if (removed) newState.revenueShare.monthEarnings = Math.max(0, (newState.revenueShare.monthEarnings || 0) - (removed.earnings || 0));
     await saveToStorage(newState);
     refresh();
+    showToast('🗑️ Shift deleted');
   };
 
   const handleAddReferral = async () => {
@@ -78,7 +101,7 @@ export default function EarningsScreen() {
     showToast('🎉 Referral added! You earn 30% commission');
   };
 
-  if (!pro) return <ScrollView style={[styles.container, { paddingTop: insets.top + 8 }]}><ProUpsell onPress={() => {}} /></ScrollView>;
+  if (!pro) return <ScrollView style={[styles.container, { paddingTop: insets.top + 8 }]}><ProUpsell onPress={() => navigation?.navigate('Settings')} /></ScrollView>;
 
   return (
     <ScrollView style={[styles.container, { paddingTop: insets.top + 8 }]} contentContainerStyle={{ padding: 12, paddingBottom: 100 }}>
@@ -94,7 +117,7 @@ export default function EarningsScreen() {
 
       <TouchableOpacity style={styles.revShareBanner}>
         <Text style={styles.revTitle}>💎 Revenue Share — {currentTier.label}</Text>
-        <Text style={styles.revSub}>You've earned <Text style={{ fontWeight: '700' }}>{formatCurrency(state.revenueShare.monthEarnings)}</Text> this month · <Text style={{ fontWeight: '700' }}>{currentTier.share}%</Text> share tier</Text>
+        <Text style={styles.revSub}>You&apos;ve earned <Text style={{ fontWeight: '700' }}>{formatCurrency(state.revenueShare.monthEarnings)}</Text> this month · <Text style={{ fontWeight: '700' }}>{currentTier.share}%</Text> share tier</Text>
         <View style={styles.payoutBox}>
           <Text style={styles.payoutAmount}>{formatCurrency(estimatedPayout)}</Text>
           <Text style={styles.payoutLabel}>Estimated next payout</Text>
@@ -111,7 +134,7 @@ export default function EarningsScreen() {
             </View>
             <ProgressBar value={m.current} max={m.target} color={m.current >= m.target ? THEME.green : THEME.accent} />
           </View>
-        )) : <Text style={{ color: THEME.gold, fontSize: 16, textAlign: 'center' }}>🏆 YOU'RE AT MAX TIER! {formatCurrency(estimatedPayout)} estimated this month</Text>}
+        )) : <Text style={{ color: THEME.gold, fontSize: 16, textAlign: 'center' }}>🏆 YOU&apos;RE AT MAX TIER! {formatCurrency(estimatedPayout)} estimated this month</Text>}
         <Text style={styles.tierNote}>{nextTier ? `Reach ${nextTier.label} to unlock ${nextTier.share}% revenue share` : 'You earn the maximum 50% revenue share!'}</Text>
       </Card>
 
@@ -127,14 +150,16 @@ export default function EarningsScreen() {
             <Text style={styles.cardTitle}>📋 Shift History</Text>
             <Text style={styles.shiftCount}>{state.shifts.length} entries</Text>
           </View>
-          {sorted.slice(0, 50).map((s, i) => (
-            <View key={i} style={styles.shiftRow}>
+          {sorted.slice(0, 50).map((s) => (
+            <View key={s.id || s.date + '-' + s.earnings} style={styles.shiftRow}>
               <Text style={styles.shiftDate}>{formatDate(s.date)}</Text>
               <Text style={[styles.shiftEarnings, { color: THEME.green }]}>{formatCurrency(s.earnings)}</Text>
-              <Text style={styles.shiftSmall}>{s.hours?.toFixed(1)}h</Text>
+              <Text style={styles.shiftSmall}>{s.hours ? Number(s.hours).toFixed(1) : '0.0'}h</Text>
               <Text style={styles.shiftSmall}>{s.hours > 0 ? formatCurrency(s.earnings / s.hours) + '/hr' : '-'}</Text>
               <Text style={styles.shiftSmall}>{s.deliveries || 0} del</Text>
-              <TouchableOpacity onPress={() => handleDelete(i)}><Text style={{ color: THEME.red, fontSize: 16 }}>×</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => handleDelete(s.id || s.date)} accessibilityLabel={`Delete shift on ${formatDate(s.date)}`}>
+                <Text style={{ color: THEME.red, fontSize: 16 }}>×</Text>
+              </TouchableOpacity>
             </View>
           ))}
         </Card>
@@ -142,9 +167,23 @@ export default function EarningsScreen() {
 
       <Card>
         <Text style={styles.cardTitle}>🤝 Referral Program</Text>
-        <Text style={styles.referralCode}>dashmaxx.app/ref/{state.settings.referralCode}</Text>
+        <Text style={styles.referralCode}>{state.settings.referralCode ? `dashmaxx.app/ref/${state.settings.referralCode}` : 'Generating your link...'}</Text>
         <View style={styles.actions}>
-          <TouchableOpacity style={[styles.btn, styles.btnSecondary, { flex: 1 }]} onPress={() => { showToast('📋 Copied!'); }}><Text style={styles.btnSecondaryText}>📋 Copy Link</Text></TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.btn, styles.btnSecondary, { flex: 1 }]}
+            onPress={async () => {
+              const code = state.settings.referralCode;
+              if (!code) { showToast('⚠️ Referral code not ready yet'); return; }
+              try {
+                await Clipboard.setStringAsync(`dashmaxx.app/ref/${code}`);
+                showToast('📋 Link copied!');
+              } catch {
+                showToast('⚠️ Could not copy — clipboard unavailable');
+              }
+            }}
+          >
+            <Text style={styles.btnSecondaryText}>📋 Copy Link</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={[styles.btn, styles.btnPrimary, { flex: 1 }]} onPress={handleAddReferral}><Text style={styles.btnPrimaryText}>+ Add Referral</Text></TouchableOpacity>
         </View>
         <Text style={styles.referralNote}>{state.revenueShare.referrals} referrals · 30% lifetime commission on each subscription</Text>

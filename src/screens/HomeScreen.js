@@ -1,31 +1,63 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Card from '../components/Card';
 import StatRow from '../components/StatRow';
 import ProgressBar from '../components/ProgressBar';
+import { showToast } from '../components/Toast';
 import { THEME, TRIAL_DAYS } from '../utils/constants';
-import { formatCurrency, formatDate, today } from '../utils/format';
+import { formatCurrency, today } from '../utils/format';
 import { calcTier, calcKpiScores } from '../utils/calculations';
-import { getLocalState, saveToStorage } from '../services/localDb';
-import { isConnected } from '../services/mcpClient';
+import { getLocalState, subscribeToState } from '../services/localDb';
+import { isConnected, checkConnection, syncAllFromDoorDash } from '../services/mcpClient';
 
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [state, setState] = useState(getLocalState());
-  const [mcpOnline, setMcpOnline] = useState(false);
-  const [refreshCounter, setRefreshCounter] = useState(0);
+  const [mcpOnline, setMcpOnline] = useState(() => isConnected());
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refreshMisc = useCallback(() => {
+    setState({ ...getLocalState() });
+    setMcpOnline(isConnected());
+  }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setState(getLocalState());
-      setMcpOnline(isConnected());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+    const unsub = subscribeToState(() => refreshMisc());
+    // Periodic health re-check (30s) — subscription handles data, this keeps the banner honest
+    const interval = setInterval(() => { setMcpOnline(isConnected()); }, 30000);
+    return () => { unsub(); clearInterval(interval); };
+  }, [refreshMisc]);
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const health = await checkConnection();
+      setMcpOnline(health.connected);
+      if (health.connected) {
+        const result = await syncAllFromDoorDash();
+        if (result.success) {
+          showToast('✅ Synced with DoorDash!');
+        } else if (result.error === 'AUTH_EXPIRED') {
+          showToast('⚠️ DoorDash token expired — reconnect in Settings');
+        } else {
+          showToast('⚠️ Sync issue: ' + (result.error || 'unknown'));
+        }
+      } else {
+        showToast('📡 MCP server offline — showing local data');
+      }
+    } catch {
+      setMcpOnline(false);
+      showToast('📡 MCP server unreachable — showing local data');
+    }
+    setRefreshing(false);
+    refreshMisc();
+  }, [refreshMisc]);
 
   const s = state;
   const pro = s.settings.isPro;
+  // Time-dependent countdown — intentionally re-evaluated on each render tick
+  // eslint-disable-next-line react-hooks/purity
   const daysLeft = Math.max(0, TRIAL_DAYS - Math.floor((Date.now() - s.settings.trialStart) / 86400000));
 
   const todayShifts = s.shifts.filter(sh => sh.date === today());
@@ -33,17 +65,24 @@ export default function HomeScreen({ navigation }) {
   const todayHours = todayShifts.reduce((sum, sh) => sum + (sh.hours || 0), 0);
   const todayDeliveries = todayShifts.reduce((sum, sh) => sum + (sh.deliveries || 0), 0);
   const hourlyRate = todayHours > 0 ? todayEarnings / todayHours : 0;
-  const totalEarnings = s.shifts.reduce((sum, sh) => sum + (sh.earnings || 0), 0);
-  const totalShifts = s.shifts.length;
 
   const tier = calcTier(s.platinum);
-  const scores = calcKpiScores(s.shifts, s.social.posts, s.revenueShare.meetupsAttended, pro, daysLeft, tier);
+  const scores = useMemo(
+    () => calcKpiScores(s.shifts, s.social.posts, s.revenueShare.meetupsAttended, pro, daysLeft, tier),
+    [s.shifts, s.social.posts, s.revenueShare.meetupsAttended, pro, daysLeft, tier]
+  );
 
-  const handleLogShift = () => navigation.navigate('Earnings');
+  const handleLogShift = () => navigation.navigate('Earnings', { openLogShift: true });
 
   return (
-    <ScrollView style={[styles.container, { paddingTop: insets.top + 8 }]} contentContainerStyle={{ padding: 12, paddingBottom: 100 }}>
-      {mcpOnline && (
+    <ScrollView
+      style={[styles.container, { paddingTop: insets.top + 8 }]}
+      contentContainerStyle={{ padding: 12, paddingBottom: 100 }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={THEME.accent} colors={[THEME.accent]} />
+      }
+    >
+      {mcpOnline ? (
         <View style={styles.syncBanner}>
           <Text style={styles.syncText}>🚚 Live DoorDash data</Text>
           <Text style={styles.syncTime}>
@@ -52,6 +91,11 @@ export default function HomeScreen({ navigation }) {
               : 'Syncing...'}
           </Text>
         </View>
+      ) : (
+        <TouchableOpacity style={[styles.syncBanner, { borderColor: THEME.border }]} onPress={() => navigation.navigate('Settings')}>
+          <Text style={[styles.syncText, { color: THEME.text2 }]}>📡 Local mode</Text>
+          <Text style={styles.syncTime}>Pull to refresh · tap to connect DoorDash</Text>
+        </TouchableOpacity>
       )}
 
       {!pro && (
@@ -105,7 +149,7 @@ export default function HomeScreen({ navigation }) {
       </Card>
 
       <Card>
-        <Text style={styles.cardTitle}>📊 Today's Stats</Text>
+        <Text style={styles.cardTitle}>📊 Today&apos;s Stats</Text>
         <StatRow items={[
           { value: formatCurrency(todayEarnings), label: 'Earnings', color: THEME.green },
           { value: todayDeliveries.toString(), label: 'Deliveries' },

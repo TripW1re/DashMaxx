@@ -69,9 +69,7 @@ async function main() {
     }
     case '--serve': {
       console.log('Starting server...');
-      const { createServer } = await import('http');
-      const { default: serverModule } = await import('./index.js');
-      // index.js auto-starts, just run it
+      await import('./index.js'); // index.js auto-starts the HTTP server
       break;
     }
     case '--help':

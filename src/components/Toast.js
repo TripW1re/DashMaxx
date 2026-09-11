@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Animated, Text, StyleSheet } from 'react-native';
 import { THEME } from '../utils/constants';
 
@@ -9,23 +9,23 @@ export function showToast(msg) {
 }
 
 export default function ToastProvider({ children }) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const msgRef = useRef('');
+  const [opacity] = useState(() => new Animated.Value(0));
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
     toastRef = (msg) => {
-      msgRef.current = msg;
+      setMessage(msg);
       opacity.setValue(1);
-      Animated.timing(opacity, { toValue: 0, duration: 2000, useNativeDriver: true }).start();
+      Animated.timing(opacity, { toValue: 0, duration: 2200, useNativeDriver: true }).start();
     };
     return () => { toastRef = null; };
-  }, []);
+  }, [opacity]);
 
   return (
     <>
       {children}
-      <Animated.View style={[styles.toast, { opacity }]}>
-        <Text style={styles.text}>{msgRef.current}</Text>
+      <Animated.View style={[styles.toast, { opacity }]} pointerEvents="none">
+        <Text style={styles.text}>{message}</Text>
       </Animated.View>
     </>
   );

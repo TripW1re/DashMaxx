@@ -3,6 +3,7 @@
     "name": "DashMaxx",
     "slug": "dashmaxx",
     "version": "1.0.0",
+    "scheme": "dashmaxx",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -14,7 +15,10 @@
       "bundleIdentifier": "com.dashmaxx.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "DashMaxx uses your location to show nearby zones and plan optimal delivery routes.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
       }
     },
     "android": {
@@ -42,6 +46,7 @@
       "expo-status-bar"
     ],
     "extra": {
+      "mcpUrl": "https://artistic-reflection-production.up.railway.app",
       "firebaseApiKey": "AIzaSyCC3E0-49QO7zIRFqLidxnYpzRu8kuIB3Q",
       "firebaseAuthDomain": "dashmaxx-b61ed.firebaseapp.com",
       "firebaseProjectId": "dashmaxx-b61ed",
